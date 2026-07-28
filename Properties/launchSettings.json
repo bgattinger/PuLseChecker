@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "PuLseChecker": {
+      "commandName": "Project",
+      "commandLineArgs": "--ip 10.8.1.20"
+    }
+  }
+}

@@ -2,7 +2,7 @@
   "profiles": {
     "PuLseChecker": {
       "commandName": "Project",
-      "commandLineArgs": "--ip 10.2.3.2 --tags SW_TRACKING_DB.SCAN_UP_TIME.UP_TIME[0] SW_TRACKING_DB.SCAN_UP_TIME.UP_TIME[1] SW_TRACKING_DB.SCAN_UP_TIME.UP_TIME[2] SW_TRACKING_DB.SCAN_UP_TIME.UP_TIME[3] SW_TRACKING_DB.SCAN_UP_TIME.UP_TIME[4] SW_TRACKING_DB.SCAN_UP_TIME.UP_TIME[5] "
+      "commandLineArgs": "--ip 10.2.1.2\r\n"
     }
   }
 }

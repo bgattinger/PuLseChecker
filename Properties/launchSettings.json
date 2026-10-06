@@ -2,7 +2,7 @@
   "profiles": {
     "PuLseChecker": {
       "commandName": "Project",
-      "commandLineArgs": "--ip 10.2.1.2\r\n"
+      "commandLineArgs": "--device 10.2.1.2 --cycle-time --cpu-info --memory-usage  "
     }
   }
 }

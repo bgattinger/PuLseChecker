@@ -20,45 +20,56 @@ class PuLseChecker
 {
     static async Task<int> Main(string[] args)
     {
-        // Define root command
-        RootCommand rootCommand = new("Check the RUN status of a PLC");
 
-        // Define root command options
-        Option<String> ipOption = new("--ip") {
-            Description = "The IP address to connect to.",
-            Required = true
+        // DEV NOTE: want to add logging option to log output to a file
+        //Option<bool> logOption = new Option<bool>("--log") {
+        //    Description = "Whether to log the output to a file"
+        //};
+
+        // Define device command
+        Argument<string> ipArgument = new Argument<string>("ip") {
+            Description = "The IP address of the device to connect to"
         };
-        Option<String> usernameOption = new("--username") {
-            Description = "The username for authentication.",
-            DefaultValueFactory = ParseResult => ""
+        Option<string> usernameOption = new Option<string>("--username") {
+            Description = "The username for authentication"
         };
-        Option<string> passwordOption = new("--password") {
-            Description = "The password for authentication.",
-            DefaultValueFactory = ParseResult => ""
+        Option<string> passwordOption = new Option<string>("--password") {
+            Description = "The password for authentication"
         };
+        Option<bool> cycleTimeOption = new Option<bool>("--cycle-time") {
+            Description = "Whether to display the CPU cycle time"
+        };
+        Option<bool> cpuInfoOption = new Option<bool>("--cpu-info") {
+            Description = "Whether to display additional CPU information"
+        };
+        Option<bool> memoryUsageOption = new Option<bool>("--memory-usage") {
+            Description = "Whether to display the CPU memory usage"
+        };
+        Command deviceCommand = new Command("--device", "Check the CPU status of a device") {
+            Arguments = {ipArgument},
+            Options = {usernameOption, passwordOption, cycleTimeOption, cpuInfoOption, memoryUsageOption}
+        };
+        deviceCommand.SetAction(async (ParseResult parseResult) => {
+            // Parse arguments and options
+            string? ip = parseResult.GetValue(ipArgument);
+            string username = parseResult.GetValue(usernameOption) ?? "";
+            string password = parseResult.GetValue(passwordOption) ?? "";
+            bool showCycleTime = parseResult.GetValue(cycleTimeOption);
+            bool showCpuInfo = parseResult.GetValue(cpuInfoOption);
+            bool showMemoryUsage = parseResult.GetValue(memoryUsageOption);
 
-        // Add root command options
-        rootCommand.Options.Add(ipOption);
-        rootCommand.Options.Add(usernameOption);
-        rootCommand.Options.Add(passwordOption);
-
-        // Define root command action
-        Action<String, String, String> rootAction = async (ip, username, password) => {
-
-
-            // validate IP address
-            if (!validateIP(ip)) {
-                // Invalid IP address, print error and exit
-                Console.Error.WriteLine("Error: Valid IP address is required.");
+            // Validate ip address
+            if (ip == null || !validateIP(ip)) {
+                Console.Error.WriteLine("Error: IP address is required.");
                 return;
             }
-            // Else: IP address valid, continue with execution
 
-            // Connect to PLC and get CPU state then Disconnect
             try {
                 // Connect to PLC
-                Console.WriteLine("////////////////////////////////////////////");
-                Console.WriteLine($"// Connecting to Device @ {ip}...");
+                Console.WriteLine(
+                    "////////////////////////////////////////////" +
+                    $"\n// Connecting to Device @ {ip}..."
+                );
                 await using var s7cp_client = new S7CommPlusClient(new S7CommPlusClientOptions {
                     Address = ip,
                     RequestTimeout = TimeSpan.FromSeconds(5),
@@ -67,79 +78,73 @@ class PuLseChecker
                     Password = password
                 });
                 await s7cp_client.ConnectAsync();
-                Console.WriteLine($"// Connection to Device @ {ip} successful!");
-                Console.WriteLine("//--------------------------------------------");
+                Console.WriteLine(
+                    $"// Connection to Device @ {ip} Successful!" +
+                    "\n//--------------------------------------------" +
+                    "\n// Getting Device Information..."
+                );
 
-                // get CPU info
-                var info = await s7cp_client.GetCpuInfoAsync();
+                // get device CPU state
+                var cpuState = await s7cp_client.GetCpuStateAsync();
 
-                // get CPU state
-                var state = await s7cp_client.GetCpuStateAsync();
-                
-                // get CPU cycle time 
-                var cycleTime = await s7cp_client.GetCpuCycleTimeAsync();
-
-                Console.WriteLine($"// Name: {info.PlcName}");
-                Console.WriteLine($"// Program: {info.ProjectName}");
-                Console.WriteLine($"// Firmware: {info.CpuFirmware}");
-                Console.WriteLine("//--------------------------------------------");
-
-                
-                Console.WriteLine($"// CPU state: {state.OperatingState}");
-                Console.WriteLine("//--------------------------------------------");
-
-                
-                Console.WriteLine($"// CPU cycle time: {cycleTime.CurrentMilliseconds} ms");
-                Console.WriteLine("//--------------------------------------------");
-
-                // get CPU memory
-                var memory = await s7cp_client.GetCpuMemoryUsageAsync();
-                foreach (var area in memory.Areas) {
-                    Console.WriteLine($"// CPU memory usage for area {area.Name}: {area.UsedBytes} bytes used out of {area.TotalBytes} bytes total ({(((double)area.UsedBytes / (double)
-                        area.TotalBytes) * 100):F2}% used)");
+                // get device CPU cycle time if option is set
+                double cpuCycleTime_currentMilliseconds = 0.0;
+                if (showCycleTime) {
+                    var cycleTime = await s7cp_client.GetCpuCycleTimeAsync();
+                    cpuCycleTime_currentMilliseconds = cycleTime.CurrentMilliseconds;
                 }
-                Console.WriteLine("//--------------------------------------------");
 
+                // get device CPU info if option is set
+                string plcName = "";
+                string projectName = "";
+                System.Version cpuFirmware = null;
+                if (showCpuInfo) {
+                    var cpuInfo = await s7cp_client.GetCpuInfoAsync();
+                    plcName = cpuInfo.PlcName;
+                    projectName = cpuInfo.ProjectName;
+                    cpuFirmware = cpuInfo.CpuFirmware;
+                }
 
+                // get device CPU memory usage if option is set
+                List<(string, long, long)> memAreas = new List<(string name, long usedBytes, long totalBytes)>();
+                if (showMemoryUsage) {
+                    var memory = await s7cp_client.GetCpuMemoryUsageAsync();
+                    foreach (var area in memory.Areas) {
+                        memAreas.Add((area.Name, area.UsedBytes, area.TotalBytes));
+                    }
+                }
 
                 // Disconnect from PLC
-                Console.WriteLine($"// Disconnecting from device @ {ip}...");
+                Console.WriteLine(
+                    $"// Successfully retrieved device information for device @ {ip}!" +
+                    "\n//--------------------------------------------" +
+                    "\n// Disconnecting from device..."
+                );
                 await s7cp_client.DisconnectAsync();
-                Console.WriteLine($"// Disconnect from device @ {ip} successful!");
-                Console.WriteLine("////////////////////////////////////////////");
+                Console.WriteLine(
+                    $"// Disconnect from device @ {ip} successful!" +
+                    "\n//--------------------------------------------" +
+                    "\n// Device Information:" +
+                    $"\n// CPU state: {cpuState.OperatingState}" +
+                    (showCycleTime ? $"\n// CPU cycle time: {cpuCycleTime_currentMilliseconds} ms" : "") +
+                    (showCpuInfo ? $"\n// Name: {plcName}\n// Program: {projectName}\n// Firmware: {cpuFirmware}" : "") +
+                    (showMemoryUsage ? $"\n// CPU memory usage: \n" + string.Join("\n", memAreas.Select(area => $"//\t {area.Item1}: {area.Item2} bytes used out of {area.Item3} bytes total ({(((double)area.Item2 / (double)area.Item3) * 100):F2}% used)")) : "") +
+                    "\n////////////////////////////////////////////"
+                );
 
             } catch (Exception ex) {
                 // Connection to the plc failed, print error and exit
                 Console.WriteLine($"An error occured while attempting to get CPU state of device @ {ip}: {ex.Message}. Exiting.");
                 return;
             }
-            
+
             return;
-        };
-
-        // Set root command action
-        rootCommand.SetAction((ParseResult parseResult) => {
-            // Validate command-line arguments
-            if (parseResult.Errors.Count > 0) {
-                // Invalid root command-line arguments, print errors and exit
-                foreach (ParseError parseError in parseResult.Errors) {
-                    Console.Error.WriteLine($"Error: {parseError.Message}");
-                }
-                return;
-            }
-
-            // Parse command-line arguments
-            var ip = parseResult.GetValue(ipOption) ?? "0.0.0.0";
-            var username = parseResult.GetValue(usernameOption) ?? "";
-            var password = parseResult.GetValue(passwordOption) ?? "";
-
-            // Execute root command action with parsed arguments
-            rootAction(ip, username, password);
-
-            // Keep the console window open until the user presses a key
-            Console.WriteLine("Press enter to exit...");
-            Console.ReadKey(true);
         });
+
+        // Define root command
+        RootCommand rootCommand = new RootCommand("Check the CPU status of a device") { 
+            Subcommands = { deviceCommand } 
+        };
 
         // Execute root command
         return await rootCommand.Parse(args).InvokeAsync();
@@ -156,6 +161,19 @@ class PuLseChecker
             return false;
         }
         return true;
+    }
+
+    static string generateDeviceOutputString (string ip, string username, string password, bool showCycleTime, bool showCpuInfo, bool showMemoryUsage) {
+        StringBuilder outputString = new StringBuilder();
+        outputString.AppendLine("////////////////////////////////////////////");
+        outputString.AppendLine($"// Connecting to Device @ {ip}...");
+        outputString.AppendLine($"// Username: {username}");
+        outputString.AppendLine($"// Password: {password}");
+        outputString.AppendLine($"// Show Cycle Time: {showCycleTime}");
+        outputString.AppendLine($"// Show CPU Info: {showCpuInfo}");
+        outputString.AppendLine($"// Show Memory Usage: {showMemoryUsage}");
+        outputString.AppendLine("////////////////////////////////////////////");
+        return outputString.ToString();
     }
 
 }
@@ -343,3 +361,76 @@ class PuLseChecker
 //    Description = "The delay in milliseconds to wait between reading the tags for the pulse check",
 //    DefaultValueFactory = ParseResult => 500 // PLC scan cycles are ~150ms long so 200 ms wait should be plenty of time for change to occur
 //};
+
+//CustomParser = (result) => {
+//    // initialize a list to hold the parsed device tuples
+//    var devices = new List<(string ip, string? username, string? password)>();
+
+
+//    // group option tokens by thier parent option instance and parse them into device tuples to add to device list
+//    var parent = result.Parent as CommandResult;
+//    if (parent == null) {
+//        // If the parent is null, return an empty list
+//        return devices;
+//    }
+
+//    var deviceOptionResults = parent.Children.OfType<OptionResult>().Where(o => o.Option == Option);
+
+//    foreach (OptionResult optRes in result.Parent?.Children.OfType<OptionResult>() ?? Enumerable.Empty<OptionResult>()) {
+//        if (optRes.Option != result.Option) continue;
+
+//        var tokens = result.Tokens.Select(t => t.Value).ToList();
+//        if (tokens.Count < 1) continue;
+
+//        string ip = (string)tokens[0];
+//        string username = tokens.Count > 1 ? (string)tokens[1] : null;
+//        string password = tokens.Count > 2 ? (string)tokens[2] : null;
+
+//        devices.Add((ip, username, password));
+//    }
+//    return devices;
+//}
+
+//Option<IEnumerable<(string ip, string username, string password)>> deviceOption = new(name: "--device") {
+//    Description = "The <IP, username, password> tuple of the device to connect to. Can be specified multiple times for multiple devices.",
+//    //AllowMultipleArgumentsPerToken = true,
+//    //Arity = new ArgumentArity(1, 3)
+//};
+//deviceOption.CustomParser = (result) => {
+//    // initialize a list to hold the parsed device tuples
+//    var devices = new List<(string ip, string username, string password)>();
+
+//    // group option tokens by thier parent option instance and parse them into device tuples to add to device list
+//    var parent = result.Parent as CommandResult;
+//    if (parent == null) {
+//        // If the parent is null, return an empty list
+//        return devices;
+//    }
+//    foreach (OptionResult optRes in parent.Children.OfType<OptionResult>().Where(o => o.Option == deviceOption)) {
+//        var tokens = optRes.Tokens.Select(t => t.Value).ToList();
+//        if (tokens.Count < 1) continue;
+//        string ip = tokens[0];
+//        string username = tokens.Count > 1 ? tokens[1] : "";
+//        string password = tokens.Count > 2 ? tokens[2] : "";
+//        devices.Add((ip, username, password));
+//    }
+//    return devices;
+//};
+
+//Option<String> ipOption = new("--ip") {
+//    Description = "The IP address to connect to.",
+//    Required = true
+//};
+//Option<String> usernameOption = new("--username") {
+//    Description = "The username for authentication.",
+//    DefaultValueFactory = ParseResult => ""
+//};
+//Option<string> passwordOption = new("--password") {
+//    Description = "The password for authentication.",
+//    DefaultValueFactory = ParseResult => ""
+//};
+
+//rootCommand.Options.Add(deviceOption);
+//rootCommand.Options.Add(ipOption);
+//rootCommand.Options.Add(usernameOption);
+//rootCommand.Options.Add(passwordOption);
